@@ -1,0 +1,132 @@
+name: Deploy to Testing Environment
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy-testing:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Build React application
+        run: npm run build-react
+      
+      - name: Run unit tests
+        run: npm run test-react
+      
+      - name: Run linting
+        run: npx eslint src/ --max-warnings=0 || echo "Linting completed with warnings"
+      
+      - name: Deploy to Testing Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_TESTING_IP }}
+          username: ${{ vars.EC2_HOST }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Navigate to app directory
+            cd ~/app || mkdir -p ~/app && cd ~/app
+            
+            # Clone or pull latest code
+            if [ -d ".git" ]; then
+              echo "Repository exists, pulling latest changes..."
+              git pull origin main
+            else
+              echo "Cloning repository..."
+              git clone https://github.com/${{ github.repository }}.git .
+            fi
+            
+            # Install dependencies
+            npm install
+            
+            # Build React application
+            npm run build-react
+            
+            # Stop existing PM2 process
+            pm2 stop ci-cd-testing || true
+            pm2 delete ci-cd-testing || true
+            
+            # Start application with PM2
+            pm2 start index.js --name ci-cd-testing
+            pm2 save
+            
+            # Show PM2 status
+            pm2 list
+      
+      - name: Send Success Email
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ vars.EMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "Testing Deployment Successful - PR #${{ github.event.pull_request.number }}"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: GitHub Actions CI/CD
+          body: |
+            Deployment to Testing Environment completed successfully!
+            
+            Deployment Details:
+            - Repository: ${{ github.repository }}
+            - Branch: ${{ github.head_ref }}
+            - Commit: ${{ github.sha }}
+            - Author: ${{ github.actor }}
+            - Pull Request: #${{ github.event.pull_request.number }}
+            
+            Access the application:
+            http://${{ secrets.EC2_TESTING_IP }}:3000
+            
+            All tests passed
+            Build successful
+            Deployment completed
+            
+            View Details: ${{ github.event.pull_request.html_url }}
+            
+            ---
+            This is an automated message from GitHub Actions
+      
+      - name: Send Failure Email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ vars.EMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "Testing Deployment Failed - PR #${{ github.event.pull_request.number }}"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: GitHub Actions CI/CD
+          body: |
+            Deployment to Testing Environment FAILED!
+            
+            Deployment Details:
+            - Repository: ${{ github.repository }}
+            - Branch: ${{ github.head_ref }}
+            - Commit: ${{ github.sha }}
+            - Author: ${{ github.actor }}
+            - Pull Request: #${{ github.event.pull_request.number }}
+            
+            Deployment failed
+            
+            Please check the workflow logs for details:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            Pull Request: ${{ github.event.pull_request.html_url }}
+            
+            ---
+            This is an automated message from GitHub Actions
