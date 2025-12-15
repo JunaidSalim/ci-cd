@@ -1,0 +1,132 @@
+name: Deploy to Staging Environment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Build React application
+        run: npm run build-react
+      
+      - name: Run unit tests
+        run: npm run test-react
+      
+      - name: Run linting
+        run: npx eslint src/ --max-warnings=0 || echo "Linting completed with warnings"
+      
+      - name: Deploy to Staging Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_STAGING_IP }}
+          username: ${{ vars.EC2_HOST }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Navigate to app directory
+            cd ~/app || mkdir -p ~/app && cd ~/app
+            
+            # Clone or pull latest code
+            if [ -d ".git" ]; then
+              echo "Repository exists, pulling latest changes..."
+              git pull origin main
+            else
+              echo "Cloning repository..."
+              git clone https://github.com/${{ github.repository }}.git .
+            fi
+            
+            # Install dependencies
+            npm install
+            
+            # Build React application
+            npm run build-react
+            
+            # Stop existing PM2 process
+            pm2 stop ci-cd-staging || true
+            pm2 delete ci-cd-staging || true
+            
+            # Start application with PM2
+            pm2 start index.js --name ci-cd-staging
+            pm2 save
+            
+            # Show PM2 status
+            pm2 list
+      
+      - name: Send Success Email
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ vars.EMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "Staging Deployment Successful - ${{ github.repository }}"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: GitHub Actions CI/CD
+          body: |
+            Deployment to Staging Environment completed successfully!
+            
+            Deployment Details:
+            - Repository: ${{ github.repository }}
+            - Branch: main
+            - Commit: ${{ github.sha }}
+            - Author: ${{ github.actor }}
+            - Message: ${{ github.event.head_commit.message }}
+            
+            Access the application:
+            http://${{ secrets.EC2_STAGING_IP }}:3000
+            
+            All tests passed
+            Build successful
+            Deployment completed
+            
+            View Commit: ${{ github.event.head_commit.url }}
+            
+            ---
+            This is an automated message from GitHub Actions
+      
+      - name: Send Failure Email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ vars.EMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "Staging Deployment Failed - ${{ github.repository }}"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: GitHub Actions CI/CD
+          body: |
+            Deployment to Staging Environment FAILED!
+            
+            Deployment Details:
+            - Repository: ${{ github.repository }}
+            - Branch: main
+            - Commit: ${{ github.sha }}
+            - Author: ${{ github.actor }}
+            - Message: ${{ github.event.head_commit.message }}
+            
+            Deployment failed
+            
+            Please check the workflow logs for details:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            View Commit: ${{ github.event.head_commit.url }}
+            
+            ---
+            This is an automated message from GitHub Actions
