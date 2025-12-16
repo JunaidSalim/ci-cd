@@ -31,17 +31,45 @@ jobs:
       - name: Run linting
         run: npx eslint src/ --max-warnings=0 || echo "Linting completed with warnings"
       
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+      
       - name: Deploy to Staging Server
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
         with:
           host: ${{ secrets.EC2_STAGING_IP }}
           username: ${{ vars.EC2_HOST }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: AWS_REGION,ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG
           script: |
             # Navigate to app directory
             cd ~/app || mkdir -p ~/app && cd ~/app
             
-            # Clone or pull latest code
+            # Clone or pull latest code for docker-compose.yml
             if [ -d ".git" ]; then
               echo "Repository exists, pulling latest changes..."
               git pull origin main
@@ -50,22 +78,26 @@ jobs:
               git clone https://github.com/${{ github.repository }}.git .
             fi
             
-            # Install dependencies
-            npm install
+            # Login to ECR
+            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
             
-            # Build React application
-            npm run build-react
+            # Pull latest Docker image
+            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
             
-            # Stop existing PM2 process
-            pm2 stop ci-cd-staging || true
-            pm2 delete ci-cd-staging || true
+            # Stop and remove existing containers
+            docker-compose down || true
             
-            # Start application with PM2
-            pm2 start index.js --name ci-cd-staging
-            pm2 save
+            # Update docker-compose.yml to use ECR image
+            sed -i "s|image:.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|g" docker-compose.yml
             
-            # Show PM2 status
-            pm2 list
+            # Start containers with docker-compose
+            docker-compose up -d
+            
+            # Show running containers
+            docker ps
+            
+            # Clean up old images
+            docker image prune -f
       
       - name: Send Success Email
         if: success()
