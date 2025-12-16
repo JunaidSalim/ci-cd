@@ -1,8 +1,6 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ci-cd-app:latest
     container_name: ci-cd-app
     ports:
       - "3000:3000"
