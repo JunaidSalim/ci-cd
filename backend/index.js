@@ -1,10 +1,16 @@
-﻿var express = require('express'); // For route handlers and templates to serve up.
-var path = require('path'); // Populating the path property of the request
-var responseTime = require('response-time'); // For code timing checks for performance logging
-var logger = require('morgan'); // HTTP request logging
+var express = require('express');
+var cors = require('cors');
+var responseTime = require('response-time');
+var logger = require('morgan');
 
 var carts = require('./carts');
 var app = express();
+
+// Enable CORS for frontend communication
+app.use(cors({
+  origin: process.env.FRONTEND_URL || '*',
+  credentials: true
+}));
 
 // Adds an X-Response-Time header to responses to measure response times
 app.use(responseTime());
@@ -13,13 +19,12 @@ app.use(responseTime());
 app.use(logger('dev'));
 
 // Sets up the response object in routes to contain a body property with an object of what is parsed from a JSON body request payload
-app.use(express.json())
+app.use(express.json());
 
-// Serving up of React app HTML with its static content - images, CSS files, and JavaScript files
-app.get('/', function (req, res) {
-  res.sendFile(path.join(__dirname, 'build', 'index.html'));
+// Health check endpoint
+app.get('/health', function (req, res) {
+  res.status(200).json({ status: 'healthy', service: 'backend' });
 });
-app.use(express.static(path.join(__dirname, 'build')));
 
 // Rest API routes
 app.use('/api/carts', carts);
@@ -51,10 +56,10 @@ app.use(function (err, req, res, next) { // eslint-disable-line no-unused-vars
     res.status(500).json({ message: err.toString(), error: {} });
 });
 
-app.set('port', process.env.PORT || 3000);
+app.set('port', process.env.PORT || 5000);
 
 var server = app.listen(app.get('port'), function () {
-  console.log('Express server listening on port ' + server.address().port);
+  console.log('Backend API server listening on port ' + server.address().port);
 });
 
 module.exports = server;

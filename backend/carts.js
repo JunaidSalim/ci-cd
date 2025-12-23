@@ -1,4 +1,4 @@
-﻿var express = require('express');
+var express = require('express');
 var router = express.Router();
 
 let activeCarts = [
@@ -30,26 +30,31 @@ let activeCarts = [
       }
     ]
   }
-]
+];
 
-//
-// Return shopping cart items for a cart id.
-//
-// NOTE: for if have a JWT that need to be validated will need that middleware inserted
-// router.get('/:id', authHelper.checkAuth, function (req, res, next) {
+/* GET cart by ID */
 router.get('/:id', function (req, res, next) {
-  // TODO: Return a 404 error if the cart ID does not exist!
-  let cart = activeCarts.find(x => x.cartID === req.params.id)
-  if (cart === undefined) {
-    let err = new Error('Cart was not found.');
+  let cart = activeCarts.find(cart => cart.cartID === req.params.id);
+  if (cart) {
+    res.json(cart);
+  } else {
+    let err = new Error('Cart not found');
     err.status = 404;
-    return next(err);
+    next(err);
   }
+});
 
-  res.header("Cache-Control", "no-cache, no-store, must-revalidate");
-  res.header("Pragma", "no-cache");
-  res.header("Expires", 0);
-  res.status(200).json(cart);
+/* POST create new cart */
+router.post('/', function (req, res, next) {
+  if (!req.body.cartID) {
+    let err = new Error('Cart ID required');
+    err.status = 400;
+    next(err);
+    return;
+  }
+  
+  activeCarts.push(req.body);
+  res.status(201).json(req.body);
 });
 
 module.exports = router;
