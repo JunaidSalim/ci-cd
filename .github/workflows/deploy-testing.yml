@@ -164,7 +164,7 @@ jobs:
           username: ${{ vars.EMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
           subject: "Testing Deployment Failed - PR #${{ github.event.pull_request.number }}"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          to: ${{ secrets.NOTIFICATION_EMAIL }},${{ github.event.pull_request.user.email }}
           from: GitHub Actions CI/CD
           body: |
             Deployment to Testing Environment FAILED!
