@@ -19,16 +19,20 @@ jobs:
         with:
           node-version: '22'
       
-      - name: Install dependencies
+      - name: Install frontend dependencies
+        working-directory: ./frontend
         run: npm install
       
       - name: Build React application
-        run: npm run build-react
+        working-directory: ./frontend
+        run: npm run build
       
-      - name: Run unit tests
-        run: npm run test-react
+      - name: Run frontend tests
+        working-directory: ./frontend
+        run: npm run test
       
       - name: Run linting
+        working-directory: ./frontend
         run: npx eslint src/ --max-warnings=0 || echo "Linting completed with warnings"
       
       - name: Configure AWS credentials
@@ -42,16 +46,29 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
       
-      - name: Build and push Docker image
+      - name: Build and push Backend Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          cd backend
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:backend-$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:backend-$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:backend-latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:backend-$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:backend-latest
+      
+      - name: Build and push Frontend Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cd frontend
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:frontend-$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:frontend-$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:frontend-latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:frontend-$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:frontend-latest
       
       - name: Deploy to Testing Server
         uses: appleboy/ssh-action@v1.0.3
@@ -81,14 +98,16 @@ jobs:
             # Login to ECR
             aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
             
-            # Pull latest Docker image
-            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
+            # Pull latest Docker images
+            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:backend-latest
+            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:frontend-latest
             
             # Stop and remove existing containers
             docker-compose down || true
             
-            # Update docker-compose.yml to use ECR image
-            sed -i "s|image:.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|g" docker-compose.yml
+            # Update docker-compose.yml to use ECR images
+            sed -i "s|image: backend:.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:backend-latest|g" docker-compose.yml
+            sed -i "s|image: frontend:.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:frontend-latest|g" docker-compose.yml
             
             # Start containers with docker-compose
             docker-compose up -d
@@ -119,6 +138,10 @@ jobs:
             - Commit: ${{ github.sha }}
             - Author: ${{ github.actor }}
             - Pull Request: #${{ github.event.pull_request.number }}
+            
+            Services Deployed:
+            - Frontend (Port 3000): React application with Nginx
+            - Backend (Port 5000): Express API server
             
             Access the application:
             http://${{ secrets.EC2_TESTING_IP }}:3000

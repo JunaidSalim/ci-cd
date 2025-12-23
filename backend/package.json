@@ -1,0 +1,20 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Backend API service for shopping cart application",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "jest --runInBand --testTimeout 999999 --collectCoverage true api_endpoint.test.js"
+  },
+  "dependencies": {
+    "express": "^4.17.2",
+    "morgan": "^1.10.0",
+    "response-time": "^2.3.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "supertest": "^6.2.2",
+    "jest": "^27.5.1"
+  }
+}
